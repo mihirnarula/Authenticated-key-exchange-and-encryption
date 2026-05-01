@@ -1,0 +1,10 @@
+# Keys and secrets
+*.pem
+*.bin
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Jupyter junk
+.ipynb_checkpoints/
