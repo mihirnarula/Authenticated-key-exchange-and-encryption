@@ -1,21 +1,51 @@
+# Secure Messenger
+
 secure messenger using:
 
-   ECDH (key exchange)
-   RSA (authentication)
-   AES-128-CBC (encryption)
-   HMAC-SHA256 (integrity)
+1. ECDH (key exchange)
 
-1. Generate RSA keys - only on server
+2. RSA (authentication)
+
+3. AES-128-CBC (encryption)
+
+4. HMAC-SHA256 (integrity)
+
+---
+
+## Setup
+
+### 5. Generate RSA keys - only on server
+
+```bash
 cd server
 openssl genpkey -algorithm RSA -out rsa_private.pem -pkeyopt rsa_keygen_bits:2048
 openssl rsa -pubout -in rsa_private.pem -out rsa_public.pem
+```
 
-2. 3. Copy public key to client
+---
+
+### 6. iii. Copy public key to client
+
+```bash
 cp rsa_public.pem ../client/
+```
 
-3. RUN
-on server 
-cd server python3 alt_run_server.py server
+---
 
-on client 
-cd client python3 alt_run_client.py client {ip u get at server}
+## RUN
+
+### 7. RUN on server
+
+```bash
+cd server
+python3 alt_run_server.py server
+```
+
+---
+
+on client
+
+```bash
+cd client
+python3 alt_run_client.py client {ip u get at server}
+```
