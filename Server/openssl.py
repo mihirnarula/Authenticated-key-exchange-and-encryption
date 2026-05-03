@@ -2,7 +2,7 @@ import subprocess
 import os
 import hashlib
 
-# ---------------- ECDH ---------------- #
+# -------- ECDH -------- #
 
 def generate_ephemeral_keypair(mode):
     key_dir = "Server_keys" if mode else "Client_keys"
@@ -50,16 +50,14 @@ def perform_key_exchange(peer_pub_bytes, mode):
         return f.read()
 
 
-# ---------------- KEY DERIVATION ---------------- #
+# -------- KEY DERIVATION -------- #
 
 def derive_keys(shared_secret):
-    hash_output = hashlib.sha256(shared_secret).digest()
-    aes_key = hash_output[:16]
-    mac_key = hash_output[16:]
-    return aes_key, mac_key
+    h = hashlib.sha256(shared_secret).digest()
+    return h[:16], h[16:]
 
 
-# ---------------- ENCRYPTION ---------------- #
+# -------- AES + HMAC -------- #
 
 def encrypt_and_mac(message, aes_key, mac_key):
     message_bytes = message.encode()
@@ -109,3 +107,29 @@ def decrypt_and_verify(data, aes_key, mac_key):
         raise Exception("MAC verification failed")
 
     return message.decode()
+
+
+# -------- RSA -------- #
+
+def sign_data(data):
+    return subprocess.check_output([
+        "openssl", "dgst", "-sha256",
+        "-sign", "rsa_private.pem"
+    ], input=data)
+
+
+def verify_signature(data, signature):
+    with open("temp_sig.bin", "wb") as f:
+        f.write(signature)
+
+    try:
+        subprocess.run([
+            "openssl", "dgst", "-sha256",
+            "-verify", "rsa_public.pem",
+            "-signature", "temp_sig.bin"
+        ], input=data, check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL)
+        return True
+    except:
+        return False

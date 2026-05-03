@@ -10,37 +10,62 @@ class Peer:
         self.port = port
         self.conn = None
 
-    # ---------------- HANDSHAKE ---------------- #
+    # -------- RECEIVE HANDSHAKE -------- #
 
-    def _recv_full_pem(self):
+    def _recv_full(self):
         buffer = b""
-        while b"<<ENDKEY>>" not in buffer:
+        while b"<<END>>" not in buffer:
             chunk = self.conn.recv(512)
             if not chunk:
                 break
             buffer += chunk
-        return buffer.replace(b"<<ENDKEY>>", b"")
+
+        data = buffer.replace(b"<<END>>", b"")
+
+        # If server sent signature → verify
+        if b"<<SIG>>" in data:
+            pub, sig = data.split(b"<<SIG>>", 1)
+
+            if not verify_signature(pub, sig):
+                raise Exception("RSA verification failed")
+
+            return pub
+
+        # Client case (no signature)
+        return data
+
+    # -------- HANDSHAKE -------- #
 
     def _handshake(self):
         print("[*] Starting handshake...")
 
         if self.is_server:
-            peer_pub = self._recv_full_pem()
+            # Server receives client pubkey first
+            peer_pub = self._recv_full()
+
+            # Server generates and signs
             pub = generate_ephemeral_keypair(self.is_server)
-            self.conn.sendall(pub + b"<<ENDKEY>>")
+            sig = sign_data(pub)
+            payload = pub + b"<<SIG>>" + sig + b"<<END>>"
+
+            self.conn.sendall(payload)
+
         else:
+            # Client sends pubkey only
             pub = generate_ephemeral_keypair(self.is_server)
-            self.conn.sendall(pub + b"<<ENDKEY>>")
-            peer_pub = self._recv_full_pem()
+            payload = pub + b"<<END>>"
+            self.conn.sendall(payload)
 
+            # Client receives signed server key
+            peer_pub = self._recv_full()
+
+        # Derive session key
         self.session_key = perform_key_exchange(peer_pub, self.is_server)
-
-        # 🔥 KEY DERIVATION
         self.aes_key, self.mac_key = derive_keys(self.session_key)
 
         print("[+] Secure session established.")
 
-    # ---------------- CONNECTION ---------------- #
+    # -------- CONNECTION -------- #
 
     def start(self):
         if self.is_server:
@@ -60,7 +85,7 @@ class Peer:
         print("I'm ready")
         self._send_loop()
 
-    # ---------------- RECEIVE ---------------- #
+    # -------- RECEIVE -------- #
 
     def _receive_loop(self):
         while True:
@@ -81,7 +106,7 @@ class Peer:
                 print(f"[Receive error]: {e}")
                 break
 
-    # ---------------- SEND ---------------- #
+    # -------- SEND -------- #
 
     def _send_loop(self):
         while True:
@@ -99,4 +124,3 @@ class Peer:
 
         self.conn.close()
         self.sock.close()
-        print("[*] Connection closed.")
