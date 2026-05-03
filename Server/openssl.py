@@ -1,24 +1,16 @@
 import subprocess
 import os
+import hashlib
+
+# ---------------- ECDH ---------------- #
 
 def generate_ephemeral_keypair(mode):
-    """
-    Generates an ephemeral ECDH key pair using OpenSSL and returns the public key bytes.
-    
-    Parameters:
-        mode (bool): If True, use "Server_keys" directory; otherwise, "Client_keys".
-    
-    Returns:
-        bytes: The PEM-encoded public key.
-    """
-    # Choose directory based on role
     key_dir = "Server_keys" if mode else "Client_keys"
     os.makedirs(key_dir, exist_ok=True)
 
     private_path = os.path.join(key_dir, "private.pem")
     public_path = os.path.join(key_dir, "public.pem")
 
-    # Generate the ephemeral private key using the NIST P-256 curve
     subprocess.run([
         "openssl", "ecparam",
         "-name", "prime256v1",
@@ -26,7 +18,6 @@ def generate_ephemeral_keypair(mode):
         "-out", private_path
     ], check=True)
 
-    # Derive and save the corresponding public key in PEM format
     subprocess.run([
         "openssl", "ec",
         "-in", private_path,
@@ -34,35 +25,19 @@ def generate_ephemeral_keypair(mode):
         "-out", public_path
     ], check=True)
 
-    # Load the public key to send over the network
     with open(public_path, "rb") as f:
-        pub_bytes = f.read()
-
-    return pub_bytes
+        return f.read()
 
 
 def perform_key_exchange(peer_pub_bytes, mode):
-    """
-    Performs ECDH key exchange with a received peer public key using OpenSSL.
-    
-    Parameters:
-        peer_pub_bytes (bytes): The peer's public key in PEM format.
-        mode (bool): If True, use "Server_keys" directory; otherwise, "Client_keys".
-    
-    Returns:
-        bytes: The raw shared secret derived from ECDH.
-    """
-    # Choose key directory based on server/client role
     key_dir = "Server_keys" if mode else "Client_keys"
     private_path = os.path.join(key_dir, "private.pem")
     peer_public_path = os.path.join(key_dir, "peer_public.pem")
     session_key_path = os.path.join(key_dir, "shared_secret.bin")
 
-    # Write the received peer public key to file (so OpenSSL can use it)
     with open(peer_public_path, "wb") as f:
         f.write(peer_pub_bytes)
 
-    # Use OpenSSL to derive the shared secret using ECDH
     subprocess.run([
         "openssl", "pkeyutl",
         "-derive",
@@ -71,9 +46,66 @@ def perform_key_exchange(peer_pub_bytes, mode):
         "-out", session_key_path
     ], check=True)
 
-    # Load and return the shared secret
     with open(session_key_path, "rb") as f:
         return f.read()
 
 
+# ---------------- KEY DERIVATION ---------------- #
 
+def derive_keys(shared_secret):
+    hash_output = hashlib.sha256(shared_secret).digest()
+    aes_key = hash_output[:16]
+    mac_key = hash_output[16:]
+    return aes_key, mac_key
+
+
+# ---------------- ENCRYPTION ---------------- #
+
+def encrypt_and_mac(message, aes_key, mac_key):
+    message_bytes = message.encode()
+
+    mac = subprocess.check_output([
+        "openssl", "dgst", "-sha256",
+        "-mac", "HMAC",
+        "-macopt", f"hexkey:{mac_key.hex()}"
+    ], input=message_bytes).split()[-1]
+
+    mac_bytes = bytes.fromhex(mac.decode())
+    payload = message_bytes + mac_bytes
+
+    iv = os.urandom(16)
+
+    ciphertext = subprocess.check_output([
+        "openssl", "enc", "-aes-128-cbc",
+        "-K", aes_key.hex(),
+        "-iv", iv.hex()
+    ], input=payload)
+
+    return iv + ciphertext
+
+
+def decrypt_and_verify(data, aes_key, mac_key):
+    iv = data[:16]
+    ciphertext = data[16:]
+
+    decrypted = subprocess.check_output([
+        "openssl", "enc", "-d", "-aes-128-cbc",
+        "-K", aes_key.hex(),
+        "-iv", iv.hex()
+    ], input=ciphertext)
+
+    message = decrypted[:-32]
+    recv_mac = decrypted[-32:]
+
+    mac = subprocess.check_output([
+        "openssl", "dgst", "-sha256",
+        "-mac", "HMAC",
+        "-macopt", f"hexkey:{mac_key.hex()}"
+    ], input=message).split()[-1]
+
+    calc_mac = bytes.fromhex(mac.decode())
+
+    if calc_mac != recv_mac:
+        raise Exception("MAC verification failed")
+
+    return message.decode()
