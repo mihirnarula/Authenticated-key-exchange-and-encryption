@@ -1,9 +1,9 @@
 secure messenger using:
 
-1. ECDH (key exchange)
-2. RSA (authentication)
-3. AES-128-CBC (encryption)
-4. HMAC-SHA256 (integrity)
+   ECDH (key exchange)
+   RSA (authentication)
+   AES-128-CBC (encryption)
+   HMAC-SHA256 (integrity)
 
 1. Generate RSA keys - only on server
 cd server
